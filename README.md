@@ -18,33 +18,32 @@ access_token = your_access_token
 
 You can also provide your credentials using the following command-line flags or their corresponding environment variables:
 
-- `--host` (`EDGEGRID_HOST`): Your Akamai API host.
-- `--client-token` (`EDGEGRID_CLIENT_TOKEN`): Your client token.
-- `--client-secret` (`EDGEGRID_CLIENT_SECRET`): Your client secret.
-- `--access-token` (`EDGEGRID_ACCESS_TOKEN`): Your access token.
-- `--key` (`EDGEGRID_ACCOUNT_KEY`): Your account switch key (optional).
+- `--host` (`EDGEGRID_HOST`): The API host.
+- `--client-token` (`EDGEGRID_CLIENT_TOKEN`): The client token for authentication.
+- `--client-secret` (`EDGEGRID_CLIENT_SECRET`): The client secret for authentication.
+- `--access-token` (`EDGEGRID_ACCESS_TOKEN`): The access token for authentication.
+- `--key` (`EDGEGRID_ACCOUNT_KEY`): Account switch key for authorization.
 
 ## Usage
 
 ### `curl`
 
-The `curl` subcommand allows you to sign and send a single HTTP request to the Akamai API. It supports a subset of the standard `curl` flags, including:
+The `curl` subcommand signs and sends a single HTTP request to the Akamai API, similar to the standard curl command. It supports the following flags:
 
-- `--url`: The URL endpoint for the API request.
-- `-X`, `--request`: The HTTP method for the request (e.g., `GET`, `POST`).
+- `-X`, `--request`: The HTTP method to use.
 - `-H`, `--header`: An HTTP header to include in the request.
-- `-d`, `--data`: The data to send in the request body.
+- `-d`, `--data`: The data to send in the request body. To send data from a file, use the `@` prefix followed by the file path (e.g., `-d @request.json`).
 - `-b`, `--cookie`: A cookie to send with the request.
 
-Here's an example of how to use the `curl` subcommand to send a `GET` request:
+Here's an example of how to send a `POST` request with a JSON body from a file named `request.json`:
 
 ```bash
-edgegrid curl -X GET "/diagnostic-tools/v2/ghost-locations/available"
+edgegrid curl -X POST -d @request.json "/some/api/endpoint"
 ```
 
 ### `proxy`
 
-The `proxy` subcommand starts a reverse proxy that automatically signs incoming requests and forwards them to the Akamai API. This is useful for developing and testing applications that interact with the Akamai API.
+The `proxy` subcommand starts a reverse proxy that automatically signs incoming requests and forwards them to the Akamai API.
 
 The following flags are available for the `proxy` subcommand:
 
