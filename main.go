@@ -32,48 +32,37 @@ func (cmd *rootCmd) edgerc() (*edgegrid.Config, error) {
 		return nil, fmt.Errorf("failed to expand home directory path: %w", err)
 	}
 
-	edgerc, err := edgegrid.New(
-		edgegrid.WithFile(egpath),
-		edgegrid.WithSection(cmd.EdgegridSection),
-	)
-
-	// Fallback to command-line flags if .edgerc file doesn't exist or is incomplete.
-	if _, err = os.Stat(egpath); err != nil {
+	var edgerc *edgegrid.Config
+	if _, err = os.Stat(egpath); err == nil {
+		if edgerc, err = edgegrid.New(
+			edgegrid.WithFile(egpath),
+			edgegrid.WithSection(cmd.EdgegridSection),
+		); err != nil {
+			return nil, err
+		}
+	} else {
 		edgerc, _ = edgegrid.New()
+
+		if cmd.Host != "" {
+			edgerc.Host = cmd.Host
+		}
+		if cmd.ClientToken != "" {
+			edgerc.ClientToken = cmd.ClientToken
+		}
+		if cmd.ClientSecret != "" {
+			edgerc.ClientSecret = cmd.ClientSecret
+		}
+		if cmd.AccessToken != "" {
+			edgerc.AccessToken = cmd.AccessToken
+		}
 	}
 
-	if cmd.Host != "" {
-		edgerc.Host = cmd.Host
+	if edgerc.Host == "" || edgerc.ClientToken == "" || edgerc.ClientSecret == "" || edgerc.AccessToken == "" {
+		return nil, fmt.Errorf("missing required Edgegrid configuration")
 	}
-	if cmd.ClientToken != "" {
-		edgerc.ClientToken = cmd.ClientToken
-	}
-	if cmd.ClientSecret != "" {
-		edgerc.ClientSecret = cmd.ClientSecret
-	}
-	if cmd.AccessToken != "" {
-		edgerc.AccessToken = cmd.AccessToken
-	}
+
 	if cmd.AccountKey != "" {
 		edgerc.AccountKey = cmd.AccountKey
-	}
-
-	// Validate required fields
-	var missing []string
-	if edgerc.Host == "" {
-		missing = append(missing, "Host")
-	}
-	if edgerc.ClientToken == "" {
-		missing = append(missing, "ClientToken")
-	}
-	if edgerc.ClientSecret == "" {
-		missing = append(missing, "ClientSecret")
-	}
-	if edgerc.AccessToken == "" {
-		missing = append(missing, "AccessToken")
-	}
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("missing required configuration values: %s", strings.Join(missing, ", "))
 	}
 
 	return edgerc, nil
@@ -119,9 +108,8 @@ func (cmd *curlCmd) Execute(args []string) error {
 	var reqBody io.Reader
 	var contentLength int64
 	if len(cmd.Data) > 0 {
-		// Handle reading data from a file.
-		// For simplicity, this is only supported as the single data argument.
 		if len(cmd.Data) == 1 && strings.HasPrefix(cmd.Data[0], "@") {
+			// Handle reading data from a file.
 			filePath := strings.TrimPrefix(cmd.Data[0], "@")
 			fileContent, err := os.ReadFile(filePath)
 			if err != nil {
