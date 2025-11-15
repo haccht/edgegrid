@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"mime"
-	"mime/multipart"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -18,13 +16,13 @@ import (
 )
 
 type rootCmd struct {
-	EdgegridFile    string `short:"r" long:"file" description:"Location of Edgegrid file" default:"~/.edgerc"`
-	EdgegridSection string `short:"s" long:"section" description:"Section of Edgegrid file" default:"default"`
-	AccountKey      string `short:"k" long:"key" env:"EDGEGRID_ACCOUNT_KEY" description:"Account switch key"`
-	Host            string `long:"host" env:"EDGEGRID_HOST" description:"Edgegrid Host"`
-	ClientToken     string `long:"client-token" env:"EDGEGRID_CLIENT_TOKEN" description:"Edgegrid ClientToken"`
-	ClientSecret    string `long:"client-secret" env:"EDGEGRID_CLIENT_SECRET" description:"Edgegrid ClientSecret"`
-	AccessToken     string `long:"access-token" env:"EDGEGRID_ACCESS_TOKEN" description:"Edgegrid AccessToken"`
+	EdgegridFile    string `short:"r" long:"file" description:"Location of the Edgegrid configuration file" default:"~/.edgerc"`
+	EdgegridSection string `short:"s" long:"section" description:"Section of the Edgegrid configuration file to use" default:"default"`
+	AccountKey      string `short:"k" long:"key" env:"EDGEGRID_ACCOUNT_KEY" description:"Account switch key for authorizing requests"`
+	Host            string `long:"host" env:"EDGEGRID_HOST" description:"Edgegrid API host"`
+	ClientToken     string `long:"client-token" env:"EDGEGRID_CLIENT_TOKEN" description:"Client token for Edgegrid authentication"`
+	ClientSecret    string `long:"client-secret" env:"EDGEGRID_CLIENT_SECRET" description:"Client secret for Edgegrid authentication"`
+	AccessToken     string `long:"access-token" env:"EDGEGRID_ACCESS_TOKEN" description:"Access token for Edgegrid authentication"`
 }
 
 func (cmd *rootCmd) edgerc() (*edgegrid.Config, error) {
@@ -68,19 +66,85 @@ func (cmd *rootCmd) edgerc() (*edgegrid.Config, error) {
 }
 
 type curlCmd struct {
+	Method  string   `short:"X" long:"request" description:"HTTP method"`
+	Headers []string `short:"H" long:"header"  description:"Request headers"`
+	Data    []string `short:"d" long:"data"    description:"Request body data"`
+	Cookies []string `short:"b" long:"cookie"  description:"HTTP cookies"`
+	Args    struct {
+		Endpoint string `positional-arg-name:"endpoint"`
+	} `positional-args:"yes"`
+
 	root *rootCmd `no-flag:"true"`
 }
 
 func (cmd *curlCmd) Execute(args []string) error {
-	req, err := cmd.newRequest(args)
+	edgerc, err := cmd.root.edgerc()
 	if err != nil {
 		return err
 	}
 
+	if cmd.Args.Endpoint == "" {
+		return fmt.Errorf("url is required")
+	}
+
+	u, err := url.Parse(cmd.Args.Endpoint)
+	if err != nil {
+		return fmt.Errorf("failed to parse url: %w", err)
+	}
+	u.Scheme = "https"
+	u.Host = edgerc.Host
+
+	if cmd.Method == "" {
+		if len(cmd.Data) > 0 {
+			cmd.Method = http.MethodPost
+		} else {
+			cmd.Method = http.MethodGet
+		}
+	}
+
+	var reqBody io.Reader
+	reqBodyStr := strings.Join(cmd.Data, "&")
+	if reqBodyStr != "" {
+		reqBody = strings.NewReader(reqBodyStr)
+	}
+
+	req, err := http.NewRequest(cmd.Method, u.String(), reqBody)
+	if err != nil {
+		return err
+	}
+
+	for _, kv := range cmd.Headers {
+		colon := strings.IndexByte(kv, ':')
+		if colon <= 0 {
+			return fmt.Errorf("invalid header format: %q", kv)
+		}
+
+		key := strings.TrimSpace(kv[:colon])
+		val := strings.TrimSpace(kv[colon+1:])
+		if key == "" {
+			return fmt.Errorf("invalid header name in: %q", kv)
+		}
+		req.Header.Add(key, val)
+	}
+
+	for _, c := range cmd.Cookies {
+		req.Header.Add("Cookie", c)
+	}
+
+	if reqBodyStr != "" {
+		if req.Header.Get("Content-Type") == "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		req.ContentLength = int64(len(reqBodyStr))
+	}
+
+	//sign request
+	edgerc.SignRequest(req)
+
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer resp.Body.Close()
 
@@ -93,143 +157,10 @@ func (cmd *curlCmd) Execute(args []string) error {
 	return nil
 }
 
-func (cmd *curlCmd) newRequest(parts []string) (*http.Request, error) {
-	edgerc, err := cmd.root.edgerc()
-	if err != nil {
-		return nil, err
-	}
-
-	var urlStr string
-	var bodyParts []string
-
-	req := &http.Request{Header: make(http.Header)}
-	for i := 0; i < len(parts); i++ {
-		val := parts[i]
-		if val == "curl" && i == 0 {
-			continue
-		}
-
-		switch val {
-		case "--url":
-			i++
-			if i >= len(parts) {
-				return nil, fmt.Errorf("%s requires argument", val)
-			}
-
-			urlStr = parts[i]
-		case "-X", "--request", "--method":
-			i++
-			if i >= len(parts) {
-				return nil, fmt.Errorf("%s requires argument", val)
-			}
-
-			req.Method = parts[i]
-		case "-H", "--header":
-			i++
-			if i >= len(parts) {
-				return nil, fmt.Errorf("%s requires argument", val)
-			}
-
-			kv := parts[i]
-			colon := strings.IndexByte(kv, ':')
-			if colon <= 0 {
-				return nil, fmt.Errorf("invalid header format: %q", kv)
-			}
-
-			key := strings.TrimSpace(kv[:colon])
-			val := strings.TrimSpace(kv[colon+1:])
-			if key == "" {
-				return nil, fmt.Errorf("invalid header name in: %q", kv)
-			}
-			req.Header.Add(key, val)
-		case "-d", "--data", "--data-raw", "--data-binary":
-			i++
-			if i >= len(parts) {
-				return nil, fmt.Errorf("%s requires argument", val)
-			}
-
-			bodyParts = append(bodyParts, parts[i])
-		case "-b", "--cookie":
-			i++
-			if i >= len(parts) {
-				return nil, fmt.Errorf("%s requires argument", val)
-			}
-
-			req.Header.Add("Cookie", parts[i])
-		default:
-			if strings.HasPrefix(val, "-") {
-				log.Printf("ignore unsupported curl flag: %s", val)
-				continue
-			}
-
-			if urlStr == "" {
-				urlStr = val
-			}
-		}
-	}
-
-	if strings.HasPrefix(urlStr, "https://") || strings.HasPrefix(urlStr, "http://") {
-		url, err := url.Parse(urlStr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse url: %w", err)
-		}
-
-		req.URL = url
-		req.URL.Scheme = "https"
-		req.URL.Host = edgerc.Host
-	} else if strings.HasPrefix(urlStr, "/") {
-		req.URL = &url.URL{Scheme: "https", Host: edgerc.Host, Path: urlStr}
-	} else {
-		return nil, fmt.Errorf("failed to parse url: '%s'", urlStr)
-	}
-
-	var bodyReader io.Reader
-	bodyStr := strings.Join(bodyParts, "&")
-	if req.Method == "" {
-		if len(bodyParts) > 0 {
-			req.Method = http.MethodPost
-		} else {
-			req.Method = http.MethodGet
-		}
-	}
-
-	if bodyStr != "" {
-		bodyReader = strings.NewReader(bodyStr)
-		contentType := req.Header.Get("Content-Type")
-
-		if contentType == "" {
-			contentType = "application/json"
-			req.Header.Add("Content-Type", contentType)
-		}
-		if contentType != "" {
-			var params map[string]string
-			contentType, params, err = mime.ParseMediaType(contentType)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse content type: %w", err)
-			}
-
-			switch contentType {
-			case "multipart/form-data":
-				mpReader := multipart.NewReader(bodyReader, params["boundary"])
-				req.MultipartForm, err = mpReader.ReadForm(1024 * 1024)
-				if err != nil {
-					return nil, fmt.Errorf("failed to parse form data: %w", err)
-				}
-			default:
-				req.Body = io.NopCloser(bodyReader)
-				req.ContentLength = int64(len(bodyStr))
-			}
-		}
-	}
-
-	edgerc.SignRequest(req)
-	return req, nil
-}
-
 type proxyCmd struct {
-	ProxyAddr    string `short:"a" long:"addr" description:"Proxy host address" default:"127.0.0.1:8080"`
-	ProxyTLSCert string `long:"tls-crt" description:"Proxy TLS/SSL certificate file path"`
-	ProxyTLSKey  string `long:"tls-key" description:"Proxy TLS/SSL key file path"`
+	ProxyAddr    string `short:"a" long:"addr" description:"The address for the proxy server to listen on." default:"127.0.0.1:8080"`
+	ProxyTLSCert string `long:"tls-crt" description:"The path to the TLS/SSL certificate file for the proxy."`
+	ProxyTLSKey  string `long:"tls-key" description:"The path to the TLS/SSL key file for the proxy."`
 
 	root *rootCmd `no-flag:"true"`
 }
@@ -247,7 +178,7 @@ func (cmd *proxyCmd) Execute(args []string) error {
 	case cmd.ProxyTLSCert != "" && cmd.ProxyTLSKey != "":
 		proxyScheme = "https"
 	default:
-		return fmt.Errorf("either --tls-cert or --tls-key is enabled")
+		return fmt.Errorf("both --tls-crt and --tls-key must be provided for HTTPS")
 	}
 
 	apiHost := &url.URL{Scheme: "https", Host: edgerc.Host}
@@ -277,17 +208,16 @@ func (cmd *proxyCmd) Execute(args []string) error {
 		u.Scheme = proxyScheme
 		u.Host = cmd.ProxyAddr
 
-		//rewrite redirects
 		resp.Header.Set("Location", u.String())
 		return nil
 	}
 
-	log.Printf("EdgeGrid ClientToken: %s", edgerc.ClientToken)
+	log.Printf("Edgegrid ClientToken: %s", edgerc.ClientToken)
 	if edgerc.AccountKey != "" {
-		log.Printf("EdgeGrid AccountSwitchKey: %s", edgerc.AccountKey)
+		log.Printf("Edgegrid AccountSwitchKey: %s", edgerc.AccountKey)
 	}
 
-	log.Printf("Starting EdgeGrid proxy on %s://%s", proxyScheme, cmd.ProxyAddr)
+	log.Printf("Starting Edgegrid proxy on %s://%s", proxyScheme, cmd.ProxyAddr)
 	http.Handle("/", egproxy)
 
 	if proxyScheme == "https" {
@@ -298,9 +228,21 @@ func (cmd *proxyCmd) Execute(args []string) error {
 
 func main() {
 	cmd := new(rootCmd)
-	parser := flags.NewParser(cmd, flags.HelpFlag|flags.PrintErrors|flags.IgnoreUnknown)
-	parser.AddCommand("curl", "Make the API call with the computed request signature", "", &curlCmd{root: cmd})
-	parser.AddCommand("proxy", "Start a proxy server to sign API call requests", "", &proxyCmd{root: cmd})
+	parser := flags.NewParser(cmd, flags.HelpFlag|flags.PrintErrors)
+
+	parser.AddCommand(
+		"curl",
+		"Make a signed API call",
+		"This command signs and sends an HTTP request to the Akamai API.",
+		&curlCmd{root: cmd},
+	)
+
+	parser.AddCommand(
+		"proxy",
+		"Start a signing proxy server",
+		"This command starts a reverse proxy that automatically signs incoming requests and forwards them to the Akamai API.",
+		&proxyCmd{root: cmd},
+	)
 
 	_, err := parser.Parse()
 	if err != nil {
