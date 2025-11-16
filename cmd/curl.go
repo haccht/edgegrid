@@ -96,9 +96,6 @@ var curlCmd = &cobra.Command{
 		}
 
 		if contentLength > 0 {
-			if req.Header.Get("Content-Type") == "" {
-				req.Header.Set("Content-Type", "application/json")
-			}
 			req.ContentLength = contentLength
 		}
 

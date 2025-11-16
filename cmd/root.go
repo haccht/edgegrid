@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/akamai/AkamaiOPEN-edgegrid-golang/v11/pkg/edgegrid"
 	"github.com/mitchellh/go-homedir"
@@ -38,21 +37,20 @@ func (eg *EdgegridOption) Signer() (*edgegrid.Config, error) {
 		}
 	} else {
 		edgerc, _ = edgegrid.New()
-
-		if host := viper.GetString("host"); host != "" {
-			edgerc.Host = host
-		}
-		if clientToken := viper.GetString("client-token"); clientToken != "" {
-			edgerc.ClientToken = clientToken
-		}
-		if clientSecret := viper.GetString("client-secret"); clientSecret != "" {
-			edgerc.ClientSecret = clientSecret
-		}
-		if accessToken := viper.GetString("access-token"); accessToken != "" {
-			edgerc.AccessToken = accessToken
-		}
 	}
 
+	if host := viper.GetString("host"); host != "" {
+		edgerc.Host = host
+	}
+	if clientToken := viper.GetString("client-token"); clientToken != "" {
+		edgerc.ClientToken = clientToken
+	}
+	if clientSecret := viper.GetString("client-secret"); clientSecret != "" {
+		edgerc.ClientSecret = clientSecret
+	}
+	if accessToken := viper.GetString("access-token"); accessToken != "" {
+		edgerc.AccessToken = accessToken
+	}
 	if edgerc.Host == "" || edgerc.ClientToken == "" || edgerc.ClientSecret == "" || edgerc.AccessToken == "" {
 		return nil, fmt.Errorf("missing required Edgegrid configuration")
 	}
