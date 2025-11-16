@@ -12,27 +12,40 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-)
-
-var (
-	endpoint string
-	method   string
-	headers  []string
-	cookies  []string
-	data     []string
+	"github.com/spf13/pflag"
 )
 
 var curlCmd = &cobra.Command{
 	Use:                "curl [endpoint]",
 	Short:              "Signs and sends a single HTTP request.",
 	Long:               "This command signs and sends a single HTTP request to the Akamai API, similar to the standard curl command.",
-	Args:               cobra.MaximumNArgs(1),
-	FParseErrWhitelist: cobra.FParseErrWhitelist{UnknownFlags: true},
+	DisableFlagParsing: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if endpoint == "" && len(args) > 0 {
-			endpoint = args[0]
-		} else if endpoint == "" {
-			return fmt.Errorf("an endpoint URL must be provided either as an argument or with the --url flag")
+		var (
+			endpoint string
+			method   string
+			headers  []string
+			cookies  []string
+			data     []string
+		)
+
+		fs := pflag.NewFlagSet("curl", pflag.ContinueOnError)
+		fs.StringVar(&endpoint, "url", "", "The URL for the request.")
+		fs.StringVarP(&method, "request", "X", "", "The HTTP method to use.")
+		fs.StringArrayVarP(&headers, "header", "H", nil, "An HTTP header to include in the request.")
+		fs.StringArrayVarP(&data, "data", "d", nil, "The data to send in the request body.")
+		fs.StringArrayVarP(&cookies, "cookie", "b", nil, "A cookie to send with the request.")
+		if err := fs.Parse(args); err != nil {
+			return err
+		}
+
+		if endpoint == "" {
+			nonFlagArgs := fs.Args()
+			if len(nonFlagArgs) > 0 {
+				endpoint = nonFlagArgs[0]
+			} else {
+				return fmt.Errorf("an endpoint URL must be provided either as an argument or with the --url flag")
+			}
 		}
 
 		edSigner, err := egOption.Signer()
@@ -129,12 +142,4 @@ var curlCmd = &cobra.Command{
 		c.Stderr = os.Stderr
 		return c.Run()
 	},
-}
-
-func init() {
-	curlCmd.Flags().StringVar(&endpoint, "url", "", "The URL for the request.")
-	curlCmd.Flags().StringVarP(&method, "request", "X", "", "The HTTP method to use.")
-	curlCmd.Flags().StringArrayVarP(&headers, "header", "H", nil, "An HTTP header to include in the request.")
-	curlCmd.Flags().StringArrayVarP(&data, "data", "d", nil, "The data to send in the request body.")
-	curlCmd.Flags().StringArrayVarP(&cookies, "cookie", "b", nil, "A cookie to send with the request.")
 }
