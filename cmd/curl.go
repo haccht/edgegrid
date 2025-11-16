@@ -19,7 +19,6 @@ var knownFlags = map[string]bool{
 	"--url": true,
 	"-X":    true, "--request": true,
 	"-H": true, "--header": true,
-	"-b": true, "--cookie": true,
 	"-d": true, "--data": true,
 }
 
@@ -75,7 +74,6 @@ var curlCmd = &cobra.Command{
 			endpoint string
 			method   string
 			headers  []string
-			cookies  []string
 			data     []string
 		)
 
@@ -85,7 +83,6 @@ var curlCmd = &cobra.Command{
 		fs.StringVar(&endpoint, "url", "", "The URL for the request.")
 		fs.StringVarP(&method, "request", "X", "", "The HTTP method to use.")
 		fs.StringArrayVarP(&headers, "header", "H", nil, "An HTTP header to include in the request.")
-		fs.StringArrayVarP(&cookies, "cookie", "b", nil, "A cookie to send with the request.")
 		fs.StringArrayVarP(&data, "data", "d", nil, "The data to send in the request body.")
 		if err := fs.Parse(knownArgs); err != nil {
 			return fmt.Errorf("curl: %s", err)
@@ -158,10 +155,6 @@ var curlCmd = &cobra.Command{
 			req.Header.Add(key, val)
 		}
 
-		for _, c := range cookies {
-			req.Header.Add("Cookie", c)
-		}
-
 		if contentLength > 0 {
 			req.ContentLength = contentLength
 		}
@@ -170,6 +163,12 @@ var curlCmd = &cobra.Command{
 
 		curlPath, err := exec.LookPath("curl")
 		if err != nil {
+			for _, arg := range unknownArgs {
+				if strings.HasPrefix(arg, "-") && arg != "-" && arg != "--" {
+					fmt.Fprintf(os.Stderr, "unsupported flag: %s", arg)
+				}
+			}
+
 			client := &http.Client{}
 			resp, err := client.Do(req)
 			if err != nil {
@@ -193,6 +192,13 @@ var curlCmd = &cobra.Command{
 		c := exec.Command(curlPath, curlArgs...)
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr
-		return c.Run()
+
+		if err := c.Run(); err != nil {
+			if exitError, ok := err.(*exec.ExitError); ok {
+				os.Exit(exitError.ExitCode())
+			}
+			return err
+		}
+		return nil
 	},
 }
