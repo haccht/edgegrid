@@ -3,11 +3,13 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/akamai/AkamaiOPEN-edgegrid-golang/v11/pkg/edgegrid"
 	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 )
 
 type EdgegridOption struct {
@@ -21,7 +23,7 @@ type EdgegridOption struct {
 }
 
 func (eg *EdgegridOption) Signer() (*edgegrid.Config, error) {
-	egpath, err := homedir.Expand(eg.edgegridFile)
+	egpath, err := homedir.Expand(viper.GetString("file"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to expand home directory path: %w", err)
 	}
@@ -30,24 +32,24 @@ func (eg *EdgegridOption) Signer() (*edgegrid.Config, error) {
 	if _, err = os.Stat(egpath); err == nil {
 		if edgerc, err = edgegrid.New(
 			edgegrid.WithFile(egpath),
-			edgegrid.WithSection(eg.edgegridSection),
+			edgegrid.WithSection(viper.GetString("section")),
 		); err != nil {
 			return nil, err
 		}
 	} else {
 		edgerc, _ = edgegrid.New()
 
-		if eg.host != "" {
-			edgerc.Host = eg.host
+		if host := viper.GetString("host"); host != "" {
+			edgerc.Host = host
 		}
-		if eg.clientToken != "" {
-			edgerc.ClientToken = eg.clientToken
+		if clientToken := viper.GetString("client-token"); clientToken != "" {
+			edgerc.ClientToken = clientToken
 		}
-		if eg.clientSecret != "" {
-			edgerc.ClientSecret = eg.clientSecret
+		if clientSecret := viper.GetString("client-secret"); clientSecret != "" {
+			edgerc.ClientSecret = clientSecret
 		}
-		if eg.accessToken != "" {
-			edgerc.AccessToken = eg.accessToken
+		if accessToken := viper.GetString("access-token"); accessToken != "" {
+			edgerc.AccessToken = accessToken
 		}
 	}
 
@@ -55,8 +57,8 @@ func (eg *EdgegridOption) Signer() (*edgegrid.Config, error) {
 		return nil, fmt.Errorf("missing required Edgegrid configuration")
 	}
 
-	if eg.accountKey != "" {
-		edgerc.AccountKey = eg.accountKey
+	if accountKey := viper.GetString("key"); accountKey != "" {
+		edgerc.AccountKey = accountKey
 	}
 
 	return edgerc, nil
@@ -73,6 +75,12 @@ func Execute() {
 	fs.StringVar(&egOption.clientToken, "client-token", "", "The client token for authentication.")
 	fs.StringVar(&egOption.clientSecret, "client-secret", "", "The client secret for authentication.")
 	fs.StringVar(&egOption.accessToken, "access-token", "", "The access token for authentication.")
+
+	viper.BindPFlags(fs)
+	viper.SetEnvPrefix("EDGEGRID")
+	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	viper.AutomaticEnv()
+	viper.BindEnv("key", "EDGEGRID_ACCOUNT_KEY")
 
 	fs.SetInterspersed(false)
 	if err := fs.Parse(os.Args[1:]); err != nil {
