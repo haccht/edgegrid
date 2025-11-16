@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -21,10 +23,11 @@ var (
 )
 
 var curlCmd = &cobra.Command{
-	Use:   "curl [endpoint]",
-	Short: "Signs and sends a single HTTP request.",
-	Long:  "This command signs and sends a single HTTP request to the Akamai API, similar to the standard curl command.",
-	Args:  cobra.MaximumNArgs(1),
+	Use:                "curl [endpoint]",
+	Short:              "Signs and sends a single HTTP request.",
+	Long:               "This command signs and sends a single HTTP request to the Akamai API, similar to the standard curl command.",
+	Args:               cobra.MaximumNArgs(1),
+	FParseErrWhitelist: cobra.FParseErrWhitelist{UnknownFlags: true},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if endpoint == "" && len(args) > 0 {
 			endpoint = args[0]
@@ -101,20 +104,33 @@ var curlCmd = &cobra.Command{
 
 		edSigner.SignRequest(req)
 
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		curlPath, err := exec.LookPath("curl")
 		if err != nil {
-			return fmt.Errorf("failed to execute HTTP request: %w", err)
-		}
-		defer resp.Body.Close()
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to execute HTTP request: %w", err)
+			}
+			defer resp.Body.Close()
 
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("failed to read response body: %w", err)
+			_, err = io.Copy(os.Stdout, resp.Body)
+			if err != nil {
+				return err
+			}
+
+			return nil
 		}
 
-		fmt.Println(string(body))
-		return nil
+		curlArgs := os.Args[slices.Index(os.Args, "curl")+1:]
+		curlArgs[slices.Index(curlArgs, endpoint)] = req.URL.String()
+
+		authHeader := fmt.Sprintf("Authorization: %s", req.Header.Get("Authorization"))
+		curlArgs = append(curlArgs, "-H", authHeader)
+
+		c := exec.Command(curlPath, curlArgs...)
+		c.Stdout = os.Stdout
+		c.Stderr = os.Stderr
+		return c.Run()
 	},
 }
 
