@@ -77,10 +77,11 @@ func Execute() {
 	fs.StringVar(&egOption.accessToken, "access-token", "", "The access token for authentication.")
 
 	viper.BindPFlags(fs)
-	viper.SetEnvPrefix("EDGEGRID")
-	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-	viper.AutomaticEnv()
 	viper.BindEnv("key", "EDGEGRID_ACCOUNT_KEY")
+	viper.BindEnv("host", "EDGEGRID_HOST")
+	viper.BindEnv("client-token", "EDGEGRID_CLIENT_TOKEN")
+	viper.BindEnv("client-secret", "EDGEGRID_CLIENT_SECRET")
+	viper.BindEnv("access-token", "EDGEGRID_ACCESS_TOKEN")
 
 	fs.SetInterspersed(false)
 	if err := fs.Parse(os.Args[1:]); err != nil {
