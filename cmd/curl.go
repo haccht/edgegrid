@@ -13,11 +13,11 @@ import (
 )
 
 var (
+	endpoint string
 	method   string
 	headers  []string
 	cookies  []string
 	data     []string
-	endpoint string
 )
 
 var curlCmd = &cobra.Command{
@@ -119,9 +119,9 @@ var curlCmd = &cobra.Command{
 }
 
 func init() {
+	curlCmd.Flags().StringVar(&endpoint, "url", "", "The URL for the request.")
 	curlCmd.Flags().StringVarP(&method, "request", "X", "", "The HTTP method to use.")
 	curlCmd.Flags().StringArrayVarP(&headers, "header", "H", nil, "An HTTP header to include in the request.")
 	curlCmd.Flags().StringArrayVarP(&data, "data", "d", nil, "The data to send in the request body.")
 	curlCmd.Flags().StringArrayVarP(&cookies, "cookie", "b", nil, "A cookie to send with the request.")
-	curlCmd.Flags().StringVar(&endpoint, "url", "", "The URL for the request.")
 }
