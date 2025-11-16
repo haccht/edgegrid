@@ -15,6 +15,56 @@ import (
 	"github.com/spf13/pflag"
 )
 
+var knownFlags = map[string]bool{
+	"--url": true,
+	"-X":    true, "--request": true,
+	"-H": true, "--header": true,
+	"-b": true, "--cookie": true,
+	"-d": true, "--data": true,
+}
+
+func splitKnownArgs(args []string) ([]string, []string) {
+	var known, unknown []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(arg, "--") {
+			if eq := strings.Index(arg, "="); eq > 0 {
+				if knownFlags[arg[:eq]] {
+					known = append(known, arg)
+				} else {
+					unknown = append(unknown, arg)
+				}
+				continue
+			}
+			if knownFlags[arg] {
+				known = append(known, arg)
+				if i+1 < len(args) {
+					known = append(known, args[i+1])
+					i++
+				}
+				continue
+			}
+		} else if strings.HasPrefix(arg, "-") {
+			for flag := range knownFlags {
+				if strings.HasPrefix(arg, flag) && len(flag) < len(arg) {
+					known = append(known, arg)
+					continue
+				}
+			}
+			if knownFlags[arg] {
+				known = append(known, arg)
+				if i+1 < len(args) {
+					known = append(known, args[i+1])
+					i++
+				}
+				continue
+			}
+		}
+		unknown = append(unknown, arg)
+	}
+	return known, unknown
+}
+
 var curlCmd = &cobra.Command{
 	Use:                "curl [endpoint]",
 	Short:              "Signs and sends a single HTTP request.",
@@ -29,24 +79,27 @@ var curlCmd = &cobra.Command{
 			data     []string
 		)
 
+		knownArgs, unknownArgs := splitKnownArgs(args)
+
 		fs := pflag.NewFlagSet("curl", pflag.ContinueOnError)
 		fs.StringVar(&endpoint, "url", "", "The URL for the request.")
 		fs.StringVarP(&method, "request", "X", "", "The HTTP method to use.")
 		fs.StringArrayVarP(&headers, "header", "H", nil, "An HTTP header to include in the request.")
-		fs.StringArrayVarP(&data, "data", "d", nil, "The data to send in the request body.")
 		fs.StringArrayVarP(&cookies, "cookie", "b", nil, "A cookie to send with the request.")
-		fs.ParseErrorsWhitelist.UnknownFlags = true
-		if err := fs.Parse(args); err != nil {
-			return err
+		fs.StringArrayVarP(&data, "data", "d", nil, "The data to send in the request body.")
+		if err := fs.Parse(knownArgs); err != nil {
+			return fmt.Errorf("curl: %s", err)
 		}
 
-		if endpoint == "" {
-			nonFlagArgs := fs.Args()
-			if len(nonFlagArgs) > 0 {
-				endpoint = nonFlagArgs[0]
-			} else {
-				return fmt.Errorf("an endpoint URL must be provided either as an argument or with the --url flag")
+		if endpoint == "" && len(unknownArgs) > 0 {
+			for _, v := range unknownArgs {
+				if strings.HasPrefix(v, "https://") || strings.HasPrefix(v, "http://") || strings.HasPrefix(v, "/") {
+					endpoint = v
+				}
 			}
+		}
+		if endpoint == "" {
+			return fmt.Errorf("an endpoint URL must be provided either as an argument or with the --url flag")
 		}
 
 		edSigner, err := egOption.Signer()
@@ -128,7 +181,6 @@ var curlCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-
 			return nil
 		}
 
