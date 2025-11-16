@@ -32,7 +32,7 @@ var curlCmd = &cobra.Command{
 			return fmt.Errorf("an endpoint URL must be provided either as an argument or with the --url flag")
 		}
 
-		edgerc, err := edgerc()
+		edSigner, err := egOption.Signer()
 		if err != nil {
 			return err
 		}
@@ -42,7 +42,7 @@ var curlCmd = &cobra.Command{
 			return fmt.Errorf("failed to parse endpoint URL: %w", err)
 		}
 		u.Scheme = "https"
-		u.Host = edgerc.Host
+		u.Host = edSigner.Host
 
 		if method == "" {
 			if len(data) > 0 {
@@ -99,7 +99,7 @@ var curlCmd = &cobra.Command{
 			req.ContentLength = contentLength
 		}
 
-		edgerc.SignRequest(req)
+		edSigner.SignRequest(req)
 
 		client := &http.Client{}
 		resp, err := client.Do(req)
@@ -119,7 +119,6 @@ var curlCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(curlCmd)
 	curlCmd.Flags().StringVarP(&method, "request", "X", "", "The HTTP method to use.")
 	curlCmd.Flags().StringArrayVarP(&headers, "header", "H", nil, "An HTTP header to include in the request.")
 	curlCmd.Flags().StringArrayVarP(&data, "data", "d", nil, "The data to send in the request body.")

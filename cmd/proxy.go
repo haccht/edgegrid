@@ -21,7 +21,7 @@ var proxyCmd = &cobra.Command{
 	Short: "Starts a signing reverse proxy.",
 	Long:  "This command starts a reverse proxy that automatically signs incoming requests and forwards them to the Akamai API.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		edgerc, err := edgerc()
+		edSigner, err := egOption.Signer()
 		if err != nil {
 			return err
 		}
@@ -36,14 +36,14 @@ var proxyCmd = &cobra.Command{
 			return fmt.Errorf("both --tls-crt and --tls-key must be provided to enable HTTPS")
 		}
 
-		apiHost := &url.URL{Scheme: "https", Host: edgerc.Host}
+		apiHost := &url.URL{Scheme: "https", Host: edSigner.Host}
 		egproxy := httputil.NewSingleHostReverseProxy(apiHost)
 		director := egproxy.Director
 
 		egproxy.Director = func(req *http.Request) {
 			req.Host = apiHost.Host
 			director(req)
-			edgerc.SignRequest(req)
+			edSigner.SignRequest(req)
 			log.Printf("[proxy] request forwarded: %s %s", req.Method, req.URL.String())
 		}
 
@@ -66,9 +66,9 @@ var proxyCmd = &cobra.Command{
 			return nil
 		}
 
-		log.Printf("[proxy] ClientToken: %s", edgerc.ClientToken)
-		if edgerc.AccountKey != "" {
-			log.Printf("[proxy] AccountSwitchKey: %s", edgerc.AccountKey)
+		log.Printf("[proxy] ClientToken: %s", edSigner.ClientToken)
+		if edSigner.AccountKey != "" {
+			log.Printf("[proxy] AccountSwitchKey: %s", edSigner.AccountKey)
 		}
 
 		log.Printf("[proxy] starting server on: %s://%s", proxyScheme, proxyAddr)
@@ -82,7 +82,6 @@ var proxyCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(proxyCmd)
 	proxyCmd.Flags().StringVarP(&proxyAddr, "addr", "a", "127.0.0.1:8080", "The address for the proxy server to listen on.")
 	proxyCmd.Flags().StringVar(&proxyTLSCert, "tls-crt", "", "The path to the TLS certificate file for the proxy.")
 	proxyCmd.Flags().StringVar(&proxyTLSKey, "tls-key", "", "The path to the TLS key file for the proxy.")
