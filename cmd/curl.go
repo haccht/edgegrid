@@ -35,6 +35,7 @@ var curlCmd = &cobra.Command{
 		fs.StringArrayVarP(&headers, "header", "H", nil, "An HTTP header to include in the request.")
 		fs.StringArrayVarP(&data, "data", "d", nil, "The data to send in the request body.")
 		fs.StringArrayVarP(&cookies, "cookie", "b", nil, "A cookie to send with the request.")
+		fs.ParseErrorsWhitelist.UnknownFlags = true
 		if err := fs.Parse(args); err != nil {
 			return err
 		}
