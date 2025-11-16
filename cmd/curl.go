@@ -13,24 +13,30 @@ import (
 )
 
 var (
-	method  string
-	headers []string
-	cookies []string
-	data    []string
+	method   string
+	headers  []string
+	cookies  []string
+	data     []string
+	endpoint string
 )
 
 var curlCmd = &cobra.Command{
-	Use:   "curl <endpoint>",
+	Use:   "curl [endpoint]",
 	Short: "Signs and sends a single HTTP request.",
 	Long:  "This command signs and sends a single HTTP request to the Akamai API, similar to the standard curl command.",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if endpoint == "" && len(args) > 0 {
+			endpoint = args[0]
+		} else if endpoint == "" {
+			return fmt.Errorf("an endpoint URL must be provided either as an argument or with the --url flag")
+		}
+
 		edgerc, err := edgerc()
 		if err != nil {
 			return err
 		}
 
-		endpoint := args[0]
 		u, err := url.Parse(endpoint)
 		if err != nil {
 			return fmt.Errorf("failed to parse endpoint URL: %w", err)
@@ -118,4 +124,5 @@ func init() {
 	curlCmd.Flags().StringArrayVarP(&headers, "header", "H", nil, "An HTTP header to include in the request.")
 	curlCmd.Flags().StringArrayVarP(&data, "data", "d", nil, "The data to send in the request body.")
 	curlCmd.Flags().StringArrayVarP(&cookies, "cookie", "b", nil, "A cookie to send with the request.")
+	curlCmd.Flags().StringVar(&endpoint, "url", "", "The URL for the request.")
 }
