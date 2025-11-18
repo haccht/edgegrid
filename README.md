@@ -33,7 +33,6 @@ The `curl` subcommand signs and sends a single HTTP request to the Akamai API, s
 - `-X`, `--request`: The HTTP method to use.
 - `-H`, `--header`: An HTTP header to include in the request.
 - `-d`, `--data`: The data to send in the request body. To send data from a file, use the `@` prefix followed by the file path (e.g., `-d @request.json`).
-- `-b`, `--cookie`: A cookie to send with the request.
 
 Here's an example of how to send a `POST` request with a JSON body from a file named `request.json`:
 
