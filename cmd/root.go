@@ -63,6 +63,11 @@ func (eg *EdgegridOption) Signer() (*edgegrid.Config, error) {
 }
 
 var egOption *EdgegridOption
+var	rootCmd = &cobra.Command{
+		Use:   "edgegrid",
+		Short: "A command-line tool for Akamai's Edgegrid API",
+		Long:  `A longer description that spans multiple lines and likely contains examples and usage of using your application.`,
+	}
 
 func Execute() {
 	fs := pflag.NewFlagSet("edgegrid", pflag.ContinueOnError)
@@ -84,12 +89,6 @@ func Execute() {
 	fs.SetInterspersed(false)
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		os.Exit(2)
-	}
-
-	rootCmd := &cobra.Command{
-		Use:   "edgegrid",
-		Short: "A command-line tool for Akamai's Edgegrid API",
-		Long:  `A longer description that spans multiple lines and likely contains examples and usage of using your application.`,
 	}
 
 	rootCmd.AddCommand(curlCmd)
