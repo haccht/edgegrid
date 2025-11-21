@@ -88,10 +88,13 @@ var curlCmd = &cobra.Command{
 			return fmt.Errorf("curl: %s", err)
 		}
 
+		var rawEndpoint string
 		if endpoint == "" && len(unknownArgs) > 0 {
 			for _, v := range unknownArgs {
-				if strings.HasPrefix(v, "https://") || strings.HasPrefix(v, "http://") || strings.HasPrefix(v, "/") {
-					endpoint = v
+				s := strings.TrimRight(strings.TrimLeft(v, `"'`), `"'`)
+				if strings.HasPrefix(s, "https://") || strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "/") {
+					rawEndpoint = v
+					endpoint = s
 				}
 			}
 		}
@@ -184,7 +187,7 @@ var curlCmd = &cobra.Command{
 		}
 
 		curlArgs := os.Args[slices.Index(os.Args, "curl")+1:]
-		curlArgs[slices.Index(curlArgs, endpoint)] = req.URL.String()
+		curlArgs[slices.Index(curlArgs, rawEndpoint)] = req.URL.String()
 
 		authHeader := fmt.Sprintf("Authorization: %s", req.Header.Get("Authorization"))
 		curlArgs = append(curlArgs, "-H", authHeader)
