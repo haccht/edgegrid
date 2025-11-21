@@ -88,10 +88,10 @@ var curlCmd = &cobra.Command{
 			return fmt.Errorf("curl: %s", err)
 		}
 
-		var rawEndpoint string
+		rawEndpoint := endpoint
 		if endpoint == "" && len(unknownArgs) > 0 {
 			for _, v := range unknownArgs {
-				s := strings.TrimRight(strings.TrimLeft(v, `"'`), `"'`)
+				s := strings.Trim(v, `"'`)
 				if strings.HasPrefix(s, "https://") || strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "/") {
 					rawEndpoint = v
 					endpoint = s
