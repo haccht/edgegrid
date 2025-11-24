@@ -20,6 +20,7 @@ var knownFlags = map[string]bool{
 	"-X":    true, "--request": true,
 	"-H": true, "--header": true,
 	"-d": true, "--data": true,
+	"--data-raw": true, "--data-binary": true,
 }
 
 func splitKnownArgs(args []string) ([]string, []string) {
@@ -84,6 +85,7 @@ var curlCmd = &cobra.Command{
 		fs.StringVarP(&method, "request", "X", "", "The HTTP method to use.")
 		fs.StringArrayVarP(&headers, "header", "H", nil, "An HTTP header to include in the request.")
 		fs.StringArrayVarP(&data, "data", "d", nil, "The data to send in the request body.")
+		fs.StringArrayVar(&data, "data-binary", nil, "The data to send in the request body.")
 		if err := fs.Parse(knownArgs); err != nil {
 			return fmt.Errorf("curl: %s", err)
 		}
@@ -123,20 +125,28 @@ var curlCmd = &cobra.Command{
 		}
 
 		var reqBody io.Reader
-		var contentLength int64
+		var stdinBody []byte
 		if len(data) > 0 {
 			if len(data) == 1 && strings.HasPrefix(data[0], "@") {
 				filePath := strings.TrimPrefix(data[0], "@")
-				fileContent, err := os.ReadFile(filePath)
-				if err != nil {
-					return fmt.Errorf("failed to read data file %q: %w", filePath, err)
+				if filePath == "-" {
+					text, err := io.ReadAll(os.Stdin)
+					if err != nil {
+						return fmt.Errorf("failed to open file %q: %w", filePath, err)
+					}
+					stdinBody = text
+					reqBody = bytes.NewReader(stdinBody)
+				} else {
+					file, err := os.Open(filePath)
+					if err != nil {
+						return fmt.Errorf("failed to open file %q: %w", filePath, err)
+					}
+					defer file.Close()
+					reqBody = file
 				}
-				reqBody = bytes.NewReader(fileContent)
-				contentLength = int64(len(fileContent))
 			} else {
 				reqBodyStr := strings.Join(data, "&")
 				reqBody = strings.NewReader(reqBodyStr)
-				contentLength = int64(len(reqBodyStr))
 			}
 		}
 
@@ -156,10 +166,6 @@ var curlCmd = &cobra.Command{
 				return fmt.Errorf("invalid header name in: %q", kv)
 			}
 			req.Header.Add(key, val)
-		}
-
-		if contentLength > 0 {
-			req.ContentLength = contentLength
 		}
 
 		edSigner.SignRequest(req)
@@ -195,6 +201,9 @@ var curlCmd = &cobra.Command{
 		c := exec.Command(curlPath, curlArgs...)
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr
+		if len(stdinBody) > 0 {
+			c.Stdin = bytes.NewReader(stdinBody)
+		}
 
 		if err := c.Run(); err != nil {
 			if exitError, ok := err.(*exec.ExitError); ok {
