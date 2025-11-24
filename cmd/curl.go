@@ -20,6 +20,9 @@ var knownFlags = map[string]bool{
 	"-X":    true, "--request": true,
 	"-H": true, "--header": true,
 	"-d": true, "--data": true,
+	"--data-binary": true,
+	"--data-ascii":  true,
+	"--data-raw":    true,
 }
 
 func splitKnownArgs(args []string) ([]string, []string) {
@@ -64,6 +67,52 @@ func splitKnownArgs(args []string) ([]string, []string) {
 	return known, unknown
 }
 
+type requestData struct {
+	values            []string
+	joinWithAmpersand bool
+	removeNewlines    bool
+}
+
+func buildRequestBody(cfg requestData) ([]byte, bool, error) {
+	if len(cfg.values) == 1 && strings.HasPrefix(cfg.values[0], "@") {
+		path := strings.TrimPrefix(cfg.values[0], "@")
+		if path == "-" {
+			body, err := io.ReadAll(os.Stdin)
+			if err != nil {
+				return nil, false, fmt.Errorf("failed to read request body from stdin: %w", err)
+			}
+
+			if cfg.removeNewlines {
+				body = removeNewlinesReplaceAll(body)
+			}
+			return body, true, nil
+		}
+
+		fileContent, err := os.ReadFile(path)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to read data file %q: %w", path, err)
+		}
+
+		if cfg.removeNewlines {
+			fileContent = removeNewlinesReplaceAll(fileContent)
+		}
+		return fileContent, false, nil
+	}
+
+	separator := ""
+	if cfg.joinWithAmpersand {
+		separator = "&"
+	}
+
+	return []byte(strings.Join(cfg.values, separator)), false, nil
+}
+
+func removeNewlinesReplaceAll(data []byte) []byte {
+	data = bytes.ReplaceAll(data, []byte{'\r'}, nil)
+	data = bytes.ReplaceAll(data, []byte{'\n'}, nil)
+	return data
+}
+
 var curlCmd = &cobra.Command{
 	Use:                "curl [endpoint]",
 	Short:              "Signs and sends a single HTTP request.",
@@ -75,6 +124,7 @@ var curlCmd = &cobra.Command{
 			method   string
 			headers  []string
 			data     []string
+			dataBin  []string
 		)
 
 		knownArgs, unknownArgs := splitKnownArgs(args)
@@ -84,6 +134,9 @@ var curlCmd = &cobra.Command{
 		fs.StringVarP(&method, "request", "X", "", "The HTTP method to use.")
 		fs.StringArrayVarP(&headers, "header", "H", nil, "An HTTP header to include in the request.")
 		fs.StringArrayVarP(&data, "data", "d", nil, "The data to send in the request body.")
+		fs.StringArrayVar(&dataBin, "data-binary", nil, "The data to send in the request body without processing.")
+		fs.StringArrayVar(&data, "data-ascii", nil, "ASCII data to send in the request body.")
+		fs.StringArrayVar(&data, "data-raw", nil, "The data to send in the request body without @file processing.")
 		if err := fs.Parse(knownArgs); err != nil {
 			return fmt.Errorf("curl: %s", err)
 		}
@@ -114,8 +167,18 @@ var curlCmd = &cobra.Command{
 		u.Scheme = "https"
 		u.Host = edSigner.Host
 
+		var bodyCfg *requestData
+		switch {
+		case len(dataBin) > 0 && len(data) > 0:
+			return fmt.Errorf("multiple data payload options provided; please use only one of --data or --data-binary")
+		case len(dataBin) > 0:
+			bodyCfg = &requestData{values: dataBin}
+		case len(data) > 0:
+			bodyCfg = &requestData{values: data, joinWithAmpersand: true, removeNewlines: true}
+		}
+
 		if method == "" {
-			if len(data) > 0 {
+			if bodyCfg != nil {
 				method = http.MethodPost
 			} else {
 				method = http.MethodGet
@@ -124,20 +187,17 @@ var curlCmd = &cobra.Command{
 
 		var reqBody io.Reader
 		var contentLength int64
-		if len(data) > 0 {
-			if len(data) == 1 && strings.HasPrefix(data[0], "@") {
-				filePath := strings.TrimPrefix(data[0], "@")
-				fileContent, err := os.ReadFile(filePath)
-				if err != nil {
-					return fmt.Errorf("failed to read data file %q: %w", filePath, err)
-				}
-				reqBody = bytes.NewReader(fileContent)
-				contentLength = int64(len(fileContent))
-			} else {
-				reqBodyStr := strings.Join(data, "&")
-				reqBody = strings.NewReader(reqBodyStr)
-				contentLength = int64(len(reqBodyStr))
+		var stdinBody []byte
+		var usesStdin bool
+		if bodyCfg != nil {
+			body, fromStdin, err := buildRequestBody(*bodyCfg)
+			if err != nil {
+				return err
 			}
+			reqBody = bytes.NewReader(body)
+			contentLength = int64(len(body))
+			stdinBody = body
+			usesStdin = fromStdin
 		}
 
 		req, err := http.NewRequest(method, u.String(), reqBody)
@@ -195,6 +255,9 @@ var curlCmd = &cobra.Command{
 		c := exec.Command(curlPath, curlArgs...)
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr
+		if usesStdin {
+			c.Stdin = bytes.NewReader(stdinBody)
+		}
 
 		if err := c.Run(); err != nil {
 			if exitError, ok := err.(*exec.ExitError); ok {
