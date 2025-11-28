@@ -20,7 +20,8 @@ var knownFlags = map[string]bool{
 	"-X":    true, "--request": true,
 	"-H": true, "--header": true,
 	"-d": true, "--data": true,
-	"--data-raw": true, "--data-binary": true,
+	"-h": true, "--help": true,
+	"--data-ascii": true, "--data-binary": true,
 }
 
 func splitKnownArgs(args []string) ([]string, []string) {
@@ -65,6 +66,47 @@ func splitKnownArgs(args []string) ([]string, []string) {
 	return known, unknown
 }
 
+type reqData struct {
+	args     []string
+	isBinary bool
+}
+
+func (c *reqData) Read() ([]byte, error) {
+	if len(c.args) == 0 {
+		return nil, nil
+	}
+
+	if len(c.args) == 1 && strings.HasPrefix(c.args[0], "@") {
+		var reader io.Reader
+		filepath := strings.TrimPrefix(c.args[0], "@")
+		if filepath == "-" {
+			reader = os.Stdin
+		} else {
+			fd, err := os.Open(filepath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to open file %q: %w", filepath, err)
+			}
+			defer fd.Close()
+
+			reader = fd
+		}
+
+		body, err := io.ReadAll(reader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read: %w", err)
+		}
+
+		if !c.isBinary {
+			body = bytes.ReplaceAll(body, []byte("\n"), []byte{})
+			body = bytes.ReplaceAll(body, []byte("\r"), []byte{})
+		}
+		return body, err
+	}
+
+	str := strings.Join(c.args, "&")
+	return []byte(str), nil
+}
+
 var curlCmd = &cobra.Command{
 	Use:                "curl [endpoint]",
 	Short:              "Signs and sends a single HTTP request.",
@@ -76,6 +118,7 @@ var curlCmd = &cobra.Command{
 			method   string
 			headers  []string
 			data     []string
+			dataBin  []string
 		)
 
 		knownArgs, unknownArgs := splitKnownArgs(args)
@@ -85,7 +128,8 @@ var curlCmd = &cobra.Command{
 		fs.StringVarP(&method, "request", "X", "", "The HTTP method to use.")
 		fs.StringArrayVarP(&headers, "header", "H", nil, "An HTTP header to include in the request.")
 		fs.StringArrayVarP(&data, "data", "d", nil, "The data to send in the request body.")
-		fs.StringArrayVar(&data, "data-binary", nil, "The data to send in the request body.")
+		fs.StringArrayVar(&data, "data-ascii", nil, "The data to send in the request body.")
+		fs.StringArrayVar(&dataBin, "data-binary", nil, "The binary data to send in the request body.")
 		if err := fs.Parse(knownArgs); err != nil {
 			return fmt.Errorf("curl: %s", err)
 		}
@@ -93,7 +137,7 @@ var curlCmd = &cobra.Command{
 		rawEndpoint := endpoint
 		if endpoint == "" && len(unknownArgs) > 0 {
 			for _, v := range unknownArgs {
-				s := strings.Trim(v, `"'`)
+				s := strings.Trim(v, `"':`)
 				if strings.HasPrefix(s, "https://") || strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "/") {
 					rawEndpoint = v
 					endpoint = s
@@ -113,9 +157,9 @@ var curlCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to parse endpoint URL: %w", err)
 		}
+
 		u.Scheme = "https"
 		u.Host = edSigner.Host
-
 		if method == "" {
 			if len(data) > 0 {
 				method = http.MethodPost
@@ -124,48 +168,43 @@ var curlCmd = &cobra.Command{
 			}
 		}
 
-		var reqBody io.Reader
-		var stdinBody []byte
-		if len(data) > 0 {
-			if len(data) == 1 && strings.HasPrefix(data[0], "@") {
-				filePath := strings.TrimPrefix(data[0], "@")
-				if filePath == "-" {
-					text, err := io.ReadAll(os.Stdin)
-					if err != nil {
-						return fmt.Errorf("failed to open file %q: %w", filePath, err)
-					}
-					stdinBody = text
-					reqBody = bytes.NewReader(stdinBody)
-				} else {
-					file, err := os.Open(filePath)
-					if err != nil {
-						return fmt.Errorf("failed to open file %q: %w", filePath, err)
-					}
-					defer file.Close()
-					reqBody = file
-				}
-			} else {
-				reqBodyStr := strings.Join(data, "&")
-				reqBody = strings.NewReader(reqBodyStr)
+		var bodyBytes []byte
+		var bodyReader io.Reader
+
+		switch {
+		case len(data) > 0 :
+			rd := &reqData{args: data, isBinary: false}
+			bodyBytes, err = rd.Read()
+			if err != nil {
+				return err
 			}
+			bodyReader = bytes.NewReader(bodyBytes)
+		case len(dataBin)>0:
+			rd := &reqData{args: dataBin, isBinary: true}
+			bodyBytes, err = rd.Read()
+			if err != nil {
+				return err
+			}
+			bodyReader = bytes.NewReader(bodyBytes)
 		}
 
-		req, err := http.NewRequest(method, u.String(), reqBody)
+		req, err := http.NewRequest(method, u.String(), bodyReader)
 		if err != nil {
 			return fmt.Errorf("failed to create new HTTP request: %w", err)
 		}
 
 		for _, kv := range headers {
 			parts := strings.SplitN(kv, ":", 2)
-			if len(parts) != 2 {
+			if len(parts) != 2 || parts[0] == "" {
 				return fmt.Errorf("invalid header format: %q (expected 'key:value')", kv)
 			}
+
 			key := strings.TrimSpace(parts[0])
 			val := strings.TrimSpace(parts[1])
-			if key == "" {
-				return fmt.Errorf("invalid header name in: %q", kv)
-			}
 			req.Header.Add(key, val)
+		}
+		if method == http.MethodPut || method == http.MethodPost {
+			req.Header.Add("Expect:", "")
 		}
 
 		edSigner.SignRequest(req)
@@ -201,8 +240,8 @@ var curlCmd = &cobra.Command{
 		c := exec.Command(curlPath, curlArgs...)
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr
-		if len(stdinBody) > 0 {
-			c.Stdin = bytes.NewReader(stdinBody)
+		if len(bodyBytes) > 0 {
+			c.Stdin = bytes.NewReader(bodyBytes)
 		}
 
 		if err := c.Run(); err != nil {
