@@ -33,6 +33,9 @@ The `curl` subcommand signs and sends a single HTTP request to the Akamai API, s
 - `-X`, `--request`: The HTTP method to use.
 - `-H`, `--header`: An HTTP header to include in the request.
 - `-d`, `--data`: The data to send in the request body. To send data from a file, use the `@` prefix followed by the file path (e.g., `-d @request.json`).
+- `--data-ascii`: The data to send in the request body. This behaves like `--data`.
+- `--data-raw`: The data to send in the request body without special `@` handling.
+- `--data-binary`: The binary data to send in the request body. File data read with `@` keeps newlines and carriage returns.
 
 Here's an example of how to send a `POST` request with a JSON body from a file named `request.json`:
 
@@ -57,4 +60,3 @@ edgegrid proxy -a "127.0.0.1:8080"
 ```
 
 Once the proxy is running, you can send requests to it as if you were sending them directly to the Akamai API. The proxy will automatically sign the requests and forward them to the API.
-

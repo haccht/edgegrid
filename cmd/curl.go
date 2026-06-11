@@ -21,7 +21,7 @@ var knownFlags = map[string]bool{
 	"-H": true, "--header": true,
 	"-d": true, "--data": true,
 	"-h": true, "--help": true,
-	"--data-ascii": true, "--data-binary": true,
+	"--data-ascii": true, "--data-binary": true, "--data-raw": true,
 }
 
 func splitKnownArgs(args []string) ([]string, []string) {
@@ -66,45 +66,97 @@ func splitKnownArgs(args []string) ([]string, []string) {
 	return known, unknown
 }
 
-type reqData struct {
-	args     []string
+type reqDataItem struct {
+	value    string
+	isRaw    bool
 	isBinary bool
 }
 
+type reqData struct {
+	items []reqDataItem
+}
+
 func (c *reqData) Read() ([]byte, error) {
-	if len(c.args) == 0 {
+	if len(c.items) == 0 {
 		return nil, nil
 	}
 
-	if len(c.args) == 1 && strings.HasPrefix(c.args[0], "@") {
-		var reader io.Reader
-		filepath := strings.TrimPrefix(c.args[0], "@")
-		if filepath == "-" {
-			reader = os.Stdin
-		} else {
-			fd, err := os.Open(filepath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to open file %q: %w", filepath, err)
-			}
-			defer fd.Close()
-
-			reader = fd
+	var body []byte
+	for i, item := range c.items {
+		if i > 0 {
+			body = append(body, '&')
 		}
 
-		body, err := io.ReadAll(reader)
+		part, err := item.Read()
 		if err != nil {
-			return nil, fmt.Errorf("failed to read: %w", err)
+			return nil, err
 		}
-
-		if !c.isBinary {
-			body = bytes.ReplaceAll(body, []byte("\n"), []byte{})
-			body = bytes.ReplaceAll(body, []byte("\r"), []byte{})
-		}
-		return body, err
+		body = append(body, part...)
 	}
 
-	str := strings.Join(c.args, "&")
-	return []byte(str), nil
+	return body, nil
+}
+
+func (i reqDataItem) Read() ([]byte, error) {
+	if i.isRaw || !strings.HasPrefix(i.value, "@") {
+		return []byte(i.value), nil
+	}
+
+	var reader io.Reader
+	filepath := strings.TrimPrefix(i.value, "@")
+	if filepath == "-" {
+		reader = os.Stdin
+	} else {
+		fd, err := os.Open(filepath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open file %q: %w", filepath, err)
+		}
+		defer fd.Close()
+
+		reader = fd
+	}
+
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read: %w", err)
+	}
+
+	if !i.isBinary {
+		body = bytes.ReplaceAll(body, []byte("\n"), []byte{})
+		body = bytes.ReplaceAll(body, []byte("\r"), []byte{})
+	}
+	return body, nil
+}
+
+type reqDataValue struct {
+	items    *[]reqDataItem
+	isBinary bool
+	isRaw    bool
+}
+
+func (v reqDataValue) Set(s string) error {
+	*v.items = append(*v.items, reqDataItem{
+		value:    s,
+		isBinary: v.isBinary,
+		isRaw:    v.isRaw,
+	})
+	return nil
+}
+
+func (v reqDataValue) String() string {
+	if v.items == nil {
+		return ""
+	}
+
+	values := make([]string, 0, len(*v.items))
+	for _, item := range *v.items {
+		values = append(values, item.value)
+	}
+	return strings.Join(values, "&")
+}
+
+func (reqDataValue) Type() string {
+	return "stringArray"
 }
 
 var curlCmd = &cobra.Command{
@@ -117,8 +169,7 @@ var curlCmd = &cobra.Command{
 			endpoint string
 			method   string
 			headers  []string
-			data     []string
-			dataBin  []string
+			data     []reqDataItem
 		)
 
 		knownArgs, unknownArgs := splitKnownArgs(args)
@@ -127,9 +178,10 @@ var curlCmd = &cobra.Command{
 		fs.StringVar(&endpoint, "url", "", "The URL for the request.")
 		fs.StringVarP(&method, "request", "X", "", "The HTTP method to use.")
 		fs.StringArrayVarP(&headers, "header", "H", nil, "An HTTP header to include in the request.")
-		fs.StringArrayVarP(&data, "data", "d", nil, "The data to send in the request body.")
-		fs.StringArrayVar(&data, "data-ascii", nil, "The data to send in the request body.")
-		fs.StringArrayVar(&dataBin, "data-binary", nil, "The binary data to send in the request body.")
+		fs.VarP(reqDataValue{items: &data}, "data", "d", "The data to send in the request body.")
+		fs.Var(reqDataValue{items: &data}, "data-ascii", "The data to send in the request body.")
+		fs.Var(reqDataValue{items: &data, isBinary: true}, "data-binary", "The binary data to send in the request body.")
+		fs.Var(reqDataValue{items: &data, isRaw: true}, "data-raw", "The data to send in the request body without special @ handling.")
 		if err := fs.Parse(knownArgs); err != nil {
 			return fmt.Errorf("curl: %s", err)
 		}
@@ -171,16 +223,8 @@ var curlCmd = &cobra.Command{
 		var bodyBytes []byte
 		var bodyReader io.Reader
 
-		switch {
-		case len(data) > 0 :
-			rd := &reqData{args: data, isBinary: false}
-			bodyBytes, err = rd.Read()
-			if err != nil {
-				return err
-			}
-			bodyReader = bytes.NewReader(bodyBytes)
-		case len(dataBin)>0:
-			rd := &reqData{args: dataBin, isBinary: true}
+		if len(data) > 0 {
+			rd := &reqData{items: data}
 			bodyBytes, err = rd.Read()
 			if err != nil {
 				return err
