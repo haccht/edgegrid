@@ -1,6 +1,12 @@
 # edgegrid
 
-This tool provides a convenient way to sign and send requests to the Akamai API using the EdgeGrid authentication scheme. It offers two subcommands: `curl`, which signs and sends a single HTTP request, and `proxy`, which starts a reverse proxy that automatically signs and forwards requests to the Akamai API.
+`edgegrid` is a command-line tool for signing requests to the Akamai API with the EdgeGrid authentication scheme.
+
+It provides two subcommands:
+
+- `curl`: signs and sends a single HTTP request.
+- `proxy`: starts a reverse proxy that signs incoming requests and forwards them to the Akamai API.
+
 
 ## Configuration
 
@@ -26,10 +32,29 @@ You can also provide your credentials using the following command-line flags or 
 
 ## Usage
 
+The top-level help shows the global EdgeGrid configuration flags:
+
+```text
+Usage of edgegrid:
+      --access-token string    The access token for authentication. (env: EDGEGRID_ACCESS_TOKEN)
+      --client-secret string   The client secret for authentication. (env: EDGEGRID_CLIENT_SECRET)
+      --client-token string    The client token for authentication. (env: EDGEGRID_CLIENT_TOKEN)
+  -r, --file string            Path to the .edgerc file. (default "~/.edgerc")
+      --host string            The API host. (env: EDGEGRID_HOST)
+  -k, --key string             Account switch key for authorization. (env: EDGEGRID_ACCOUNT_KEY)
+  -s, --section string         The section of the .edgerc file to use. (default "default")
+```
+
 ### `curl`
 
-The `curl` subcommand signs and sends a single HTTP request to the Akamai API, similar to the standard curl command. It supports the following flags:
+The `curl` subcommand signs and sends a single HTTP request to the Akamai API.
 
+It normally works as a wrapper around the standard `curl` command.
+When `curl` is installed, `edgegrid curl` preserves the curl-style arguments, replaces the target endpoint with the signed Akamai API URL, adds the EdgeGrid `Authorization` header, and then executes `curl`.
+
+If the `curl` executable is not available, `edgegrid curl` falls back to Go's `net/http` client. In that mode, it still supports a practical subset of curl-style options listed below for signed Akamai API requests.
+
+- `--url`: The URL or endpoint path for the request.
 - `-X`, `--request`: The HTTP method to use.
 - `-H`, `--header`: An HTTP header to include in the request.
 - `-d`, `--data`: The data to send in the request body. To send data from a file, use the `@` prefix followed by the file path (e.g., `-d @request.json`).
