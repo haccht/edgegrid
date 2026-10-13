@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -75,24 +76,16 @@ It provides two subcommands:
 }
 
 func Execute() {
-	fs := pflag.NewFlagSet("edgegrid", pflag.ContinueOnError)
-	fs.StringVarP(&egOption.edgegridFile, "file", "r", "~/.edgerc", "Path to the .edgerc file.")
-	fs.StringVarP(&egOption.edgegridSection, "section", "s", "default", "The section of the .edgerc file to use.")
-	fs.StringVarP(&egOption.accountKey, "key", "k", "", "Account switch key for authorization. (env: EDGEGRID_ACCOUNT_KEY)")
-	fs.StringVar(&egOption.host, "host", "", "The API host. (env: EDGEGRID_HOST)")
-	fs.StringVar(&egOption.clientToken, "client-token", "", "The client token for authentication. (env: EDGEGRID_CLIENT_TOKEN)")
-	fs.StringVar(&egOption.clientSecret, "client-secret", "", "The client secret for authentication. (env: EDGEGRID_CLIENT_SECRET)")
-	fs.StringVar(&egOption.accessToken, "access-token", "", "The access token for authentication. (env: EDGEGRID_ACCESS_TOKEN)")
-
-	viper.BindPFlags(fs)
-	viper.BindEnv("key", "EDGEGRID_ACCOUNT_KEY")
-	viper.BindEnv("host", "EDGEGRID_HOST")
-	viper.BindEnv("client-token", "EDGEGRID_CLIENT_TOKEN")
-	viper.BindEnv("client-secret", "EDGEGRID_CLIENT_SECRET")
-	viper.BindEnv("access-token", "EDGEGRID_ACCESS_TOKEN")
-
+	fs := rootCmd.Flags()
+	fs.Usage = func() {}
 	fs.SetInterspersed(false)
+
 	if err := fs.Parse(os.Args[1:]); err != nil {
+		if errors.Is(err, pflag.ErrHelp) {
+			_ = rootCmd.Help()
+			return
+		}
+		fmt.Println(err)
 		os.Exit(2)
 	}
 
@@ -107,4 +100,20 @@ func init() {
 	egOption = new(EdgegridOption)
 	rootCmd.AddCommand(curlCmd)
 	rootCmd.AddCommand(proxyCmd)
+	rootCmd.InitDefaultHelpFlag()
+
+	rootCmd.Flags().StringVarP(&egOption.edgegridFile, "file", "r", "~/.edgerc", "Path to the .edgerc file.")
+	rootCmd.Flags().StringVarP(&egOption.edgegridSection, "section", "s", "default", "The section of the .edgerc file to use.")
+	rootCmd.Flags().StringVarP(&egOption.accountKey, "key", "k", "", "Account switch key for authorization. (env: EDGEGRID_ACCOUNT_KEY)")
+	rootCmd.Flags().StringVar(&egOption.host, "host", "", "The API host. (env: EDGEGRID_HOST)")
+	rootCmd.Flags().StringVar(&egOption.clientToken, "client-token", "", "The client token for authentication. (env: EDGEGRID_CLIENT_TOKEN)")
+	rootCmd.Flags().StringVar(&egOption.clientSecret, "client-secret", "", "The client secret for authentication. (env: EDGEGRID_CLIENT_SECRET)")
+	rootCmd.Flags().StringVar(&egOption.accessToken, "access-token", "", "The access token for authentication. (env: EDGEGRID_ACCESS_TOKEN)")
+
+	viper.BindPFlags(rootCmd.Flags())
+	viper.BindEnv("key", "EDGEGRID_ACCOUNT_KEY")
+	viper.BindEnv("host", "EDGEGRID_HOST")
+	viper.BindEnv("client-token", "EDGEGRID_CLIENT_TOKEN")
+	viper.BindEnv("client-secret", "EDGEGRID_CLIENT_SECRET")
+	viper.BindEnv("access-token", "EDGEGRID_ACCESS_TOKEN")
 }

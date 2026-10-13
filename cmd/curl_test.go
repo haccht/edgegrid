@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/spf13/pflag"
@@ -155,5 +157,44 @@ func TestReqDataValuePreservesFlagOrder(t *testing.T) {
 	}
 	if !reflect.DeepEqual(data, want) {
 		t.Fatalf("data = %#v, want %#v", data, want)
+	}
+}
+
+func TestCurlCmdHelpFlag(t *testing.T) {
+	for _, flag := range []string{"-h", "--help"} {
+		t.Run(flag, func(t *testing.T) {
+			buf := new(bytes.Buffer)
+			rootCmd.SetOut(buf)
+			rootCmd.SetErr(buf)
+			rootCmd.SetArgs([]string{"curl", flag})
+
+			err := rootCmd.Execute()
+			if err != nil {
+				t.Fatalf("unexpected error for %s: %v", flag, err)
+			}
+			output := buf.String()
+			for _, expected := range []string{"Usage:", "--url", "--data", "-X", "-H", "-h, --help"} {
+				if !strings.Contains(output, expected) {
+					t.Errorf("output does not contain %q: %s", expected, output)
+				}
+			}
+		})
+	}
+}
+
+func TestRootCmdHelpOutput(t *testing.T) {
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+
+	err := rootCmd.Help()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	output := buf.String()
+	for _, expected := range []string{"curl", "proxy", "--file", "--section", "--host", "-h, --help"} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("output does not contain %q: %s", expected, output)
+		}
 	}
 }

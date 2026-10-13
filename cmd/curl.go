@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -170,6 +171,10 @@ var curlCmd = &cobra.Command{
 	Long:               "This command signs and sends a single HTTP request to the Akamai API, similar to the standard curl command.",
 	DisableFlagParsing: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if slices.Contains(args, "-h") || slices.Contains(args, "--help") {
+			return cmd.Help()
+		}
+
 		var (
 			endpoint string
 			method   string
@@ -180,6 +185,7 @@ var curlCmd = &cobra.Command{
 		knownArgs, unknownArgs := splitKnownArgs(args)
 
 		fs := pflag.NewFlagSet("curl", pflag.ContinueOnError)
+		fs.Usage = func() {}
 		fs.StringVar(&endpoint, "url", "", "The URL for the request.")
 		fs.StringVarP(&method, "request", "X", "", "The HTTP method to use.")
 		fs.StringArrayVarP(&headers, "header", "H", nil, "An HTTP header to include in the request.")
@@ -188,6 +194,9 @@ var curlCmd = &cobra.Command{
 		fs.Var(reqDataValue{items: &data, isBinary: true}, "data-binary", "The binary data to send in the request body.")
 		fs.Var(reqDataValue{items: &data, isRaw: true}, "data-raw", "The data to send in the request body without special @ handling.")
 		if err := fs.Parse(knownArgs); err != nil {
+			if errors.Is(err, pflag.ErrHelp) {
+				return cmd.Help()
+			}
 			return fmt.Errorf("curl: %s", err)
 		}
 
@@ -315,4 +324,14 @@ var curlCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+func init() {
+	curlCmd.Flags().String("url", "", "The URL for the request.")
+	curlCmd.Flags().StringP("request", "X", "", "The HTTP method to use.")
+	curlCmd.Flags().StringArrayP("header", "H", nil, "An HTTP header to include in the request.")
+	curlCmd.Flags().VarP(reqDataValue{}, "data", "d", "The data to send in the request body.")
+	curlCmd.Flags().Var(reqDataValue{}, "data-ascii", "The data to send in the request body.")
+	curlCmd.Flags().Var(reqDataValue{isBinary: true}, "data-binary", "The binary data to send in the request body.")
+	curlCmd.Flags().Var(reqDataValue{isRaw: true}, "data-raw", "The data to send in the request body without special @ handling.")
 }
