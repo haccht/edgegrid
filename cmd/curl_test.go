@@ -92,6 +92,36 @@ func TestSplitKnownArgsHandlesDataRaw(t *testing.T) {
 			wantKnown:   []string{"--data-raw=@literal"},
 			wantUnknown: []string{"/path"},
 		},
+		{
+			name:        "attached short flag method",
+			args:        []string{"-XPOST", "/path"},
+			wantKnown:   []string{"-XPOST"},
+			wantUnknown: []string{"/path"},
+		},
+		{
+			name:        "attached short flag header",
+			args:        []string{"-HContent-Type: application/json", "/path"},
+			wantKnown:   []string{"-HContent-Type: application/json"},
+			wantUnknown: []string{"/path"},
+		},
+		{
+			name:        "space separated short flag",
+			args:        []string{"-X", "POST", "-d", "data", "/path"},
+			wantKnown:   []string{"-X", "POST", "-d", "data"},
+			wantUnknown: []string{"/path"},
+		},
+		{
+			name:        "help flag does not consume next arg",
+			args:        []string{"-h", "/path"},
+			wantKnown:   []string{"-h"},
+			wantUnknown: []string{"/path"},
+		},
+		{
+			name:        "unknown flags preserved",
+			args:        []string{"-s", "-v", "--insecure", "/path"},
+			wantKnown:   nil,
+			wantUnknown: []string{"-s", "-v", "--insecure", "/path"},
+		},
 	}
 
 	for _, tt := range tests {

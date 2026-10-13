@@ -63,11 +63,16 @@ func (eg *EdgegridOption) Signer() (*edgegrid.Config, error) {
 }
 
 var egOption *EdgegridOption
-var	rootCmd = &cobra.Command{
-		Use:   "edgegrid",
-		Short: "A command-line tool for Akamai's Edgegrid API",
-		Long:  `A longer description that spans multiple lines and likely contains examples and usage of using your application.`,
-	}
+var rootCmd = &cobra.Command{
+	Use:   "edgegrid",
+	Short: "A command-line tool for Akamai's Edgegrid API",
+	Long: `edgegrid is a command-line tool for signing requests to the Akamai API
+with the EdgeGrid authentication scheme.
+
+It provides two subcommands:
+  curl   Signs and sends a single HTTP request to the Akamai API.
+  proxy  Starts a reverse proxy that signs incoming requests and forwards them to the Akamai API.`,
+}
 
 func Execute() {
 	fs := pflag.NewFlagSet("edgegrid", pflag.ContinueOnError)
@@ -91,8 +96,6 @@ func Execute() {
 		os.Exit(2)
 	}
 
-	rootCmd.AddCommand(curlCmd)
-	rootCmd.AddCommand(proxyCmd)
 	rootCmd.SetArgs(fs.Args())
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -102,4 +105,6 @@ func Execute() {
 
 func init() {
 	egOption = new(EdgegridOption)
+	rootCmd.AddCommand(curlCmd)
+	rootCmd.AddCommand(proxyCmd)
 }

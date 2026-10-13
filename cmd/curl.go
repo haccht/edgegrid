@@ -39,22 +39,27 @@ func splitKnownArgs(args []string) ([]string, []string) {
 			}
 			if knownFlags[arg] {
 				known = append(known, arg)
-				if i+1 < len(args) {
+				if arg != "--help" && i+1 < len(args) {
 					known = append(known, args[i+1])
 					i++
 				}
 				continue
 			}
 		} else if strings.HasPrefix(arg, "-") {
-			for flag := range knownFlags {
-				if strings.HasPrefix(arg, flag) && len(flag) < len(arg) {
+			var attached bool
+			for _, prefix := range []string{"-X", "-H", "-d"} {
+				if strings.HasPrefix(arg, prefix) && len(arg) > len(prefix) {
 					known = append(known, arg)
-					continue
+					attached = true
+					break
 				}
+			}
+			if attached {
+				continue
 			}
 			if knownFlags[arg] {
 				known = append(known, arg)
-				if i+1 < len(args) {
+				if arg != "-h" && i+1 < len(args) {
 					known = append(known, args[i+1])
 					i++
 				}
@@ -247,9 +252,6 @@ var curlCmd = &cobra.Command{
 			val := strings.TrimSpace(parts[1])
 			req.Header.Add(key, val)
 		}
-		if method == http.MethodPut || method == http.MethodPost {
-			req.Header.Add("Expect:", "")
-		}
 
 		edSigner.SignRequest(req)
 
@@ -257,7 +259,7 @@ var curlCmd = &cobra.Command{
 		if err != nil {
 			for _, arg := range unknownArgs {
 				if strings.HasPrefix(arg, "-") && arg != "-" && arg != "--" {
-					fmt.Fprintf(os.Stderr, "unsupported flag: %s", arg)
+					fmt.Fprintf(os.Stderr, "unsupported flag: %s\n", arg)
 				}
 			}
 
@@ -275,8 +277,25 @@ var curlCmd = &cobra.Command{
 			return nil
 		}
 
-		curlArgs := os.Args[slices.Index(os.Args, "curl")+1:]
-		curlArgs[slices.Index(curlArgs, rawEndpoint)] = req.URL.String()
+		curlArgs := slices.Clone(args)
+		replaced := false
+		if rawEndpoint != "" {
+			if idx := slices.Index(curlArgs, rawEndpoint); idx >= 0 {
+				curlArgs[idx] = req.URL.String()
+				replaced = true
+			} else {
+				for i, arg := range curlArgs {
+					if strings.HasPrefix(arg, "--url=") {
+						curlArgs[i] = "--url=" + req.URL.String()
+						replaced = true
+						break
+					}
+				}
+			}
+		}
+		if !replaced {
+			curlArgs = append(curlArgs, req.URL.String())
+		}
 
 		authHeader := fmt.Sprintf("Authorization: %s", req.Header.Get("Authorization"))
 		curlArgs = append(curlArgs, "-H", authHeader)
