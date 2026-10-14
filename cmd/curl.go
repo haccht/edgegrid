@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -23,6 +24,34 @@ var knownFlags = map[string]bool{
 	"-d": true, "--data": true,
 	"-h": true, "--help": true,
 	"--data-ascii": true, "--data-binary": true, "--data-raw": true,
+	"--dry-run": true,
+}
+
+var boolFlags = map[string]bool{
+	"-h":        true,
+	"--help":    true,
+	"--dry-run": true,
+}
+
+var safeArgPattern = regexp.MustCompile(`^[a-zA-Z0-9_@%+=:,./-]+$`)
+
+func quoteArg(s string) string {
+	if len(s) == 0 {
+		return "''"
+	}
+	if safeArgPattern.MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+func formatCurlCommand(args []string) string {
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, "curl")
+	for _, arg := range args {
+		parts = append(parts, quoteArg(arg))
+	}
+	return strings.Join(parts, " ")
 }
 
 func splitKnownArgs(args []string) ([]string, []string) {
@@ -40,7 +69,7 @@ func splitKnownArgs(args []string) ([]string, []string) {
 			}
 			if knownFlags[arg] {
 				known = append(known, arg)
-				if arg != "--help" && i+1 < len(args) {
+				if !boolFlags[arg] && i+1 < len(args) {
 					known = append(known, args[i+1])
 					i++
 				}
@@ -60,7 +89,7 @@ func splitKnownArgs(args []string) ([]string, []string) {
 			}
 			if knownFlags[arg] {
 				known = append(known, arg)
-				if arg != "-h" && i+1 < len(args) {
+				if !boolFlags[arg] && i+1 < len(args) {
 					known = append(known, args[i+1])
 					i++
 				}
@@ -180,6 +209,7 @@ var curlCmd = &cobra.Command{
 			method   string
 			headers  []string
 			data     []reqDataItem
+			dryRun   bool
 		)
 
 		knownArgs, unknownArgs := splitKnownArgs(args)
@@ -193,6 +223,7 @@ var curlCmd = &cobra.Command{
 		fs.Var(reqDataValue{items: &data}, "data-ascii", "The data to send in the request body.")
 		fs.Var(reqDataValue{items: &data, isBinary: true}, "data-binary", "The binary data to send in the request body.")
 		fs.Var(reqDataValue{items: &data, isRaw: true}, "data-raw", "The data to send in the request body without special @ handling.")
+		fs.BoolVar(&dryRun, "dry-run", false, "Print the curl command without sending the request.")
 		if err := fs.Parse(knownArgs); err != nil {
 			if errors.Is(err, pflag.ErrHelp) {
 				return cmd.Help()
@@ -264,29 +295,15 @@ var curlCmd = &cobra.Command{
 
 		edSigner.SignRequest(req)
 
-		curlPath, err := exec.LookPath("curl")
-		if err != nil {
-			for _, arg := range unknownArgs {
-				if strings.HasPrefix(arg, "-") && arg != "-" && arg != "--" {
-					fmt.Fprintf(os.Stderr, "unsupported flag: %s\n", arg)
-				}
+		var filteredArgs []string
+		for _, arg := range args {
+			if arg == "--dry-run" || strings.HasPrefix(arg, "--dry-run=") {
+				continue
 			}
-
-			client := &http.Client{}
-			resp, err := client.Do(req)
-			if err != nil {
-				return fmt.Errorf("failed to execute HTTP request: %w", err)
-			}
-			defer resp.Body.Close()
-
-			_, err = io.Copy(os.Stdout, resp.Body)
-			if err != nil {
-				return err
-			}
-			return nil
+			filteredArgs = append(filteredArgs, arg)
 		}
 
-		curlArgs := slices.Clone(args)
+		curlArgs := filteredArgs
 		replaced := false
 		if rawEndpoint != "" {
 			if idx := slices.Index(curlArgs, rawEndpoint); idx >= 0 {
@@ -308,6 +325,33 @@ var curlCmd = &cobra.Command{
 
 		authHeader := fmt.Sprintf("Authorization: %s", req.Header.Get("Authorization"))
 		curlArgs = append(curlArgs, "-H", authHeader)
+
+		if dryRun {
+			fmt.Fprintln(cmd.OutOrStdout(), formatCurlCommand(curlArgs))
+			return nil
+		}
+
+		curlPath, err := exec.LookPath("curl")
+		if err != nil {
+			for _, arg := range unknownArgs {
+				if strings.HasPrefix(arg, "-") && arg != "-" && arg != "--" {
+					fmt.Fprintf(os.Stderr, "unsupported flag: %s\n", arg)
+				}
+			}
+
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to execute HTTP request: %w", err)
+			}
+			defer resp.Body.Close()
+
+			_, err = io.Copy(os.Stdout, resp.Body)
+			if err != nil {
+				return err
+			}
+			return nil
+		}
 
 		c := exec.Command(curlPath, curlArgs...)
 		c.Stdout = os.Stdout
@@ -334,4 +378,5 @@ func init() {
 	curlCmd.Flags().Var(reqDataValue{}, "data-ascii", "The data to send in the request body.")
 	curlCmd.Flags().Var(reqDataValue{isBinary: true}, "data-binary", "The binary data to send in the request body.")
 	curlCmd.Flags().Var(reqDataValue{isRaw: true}, "data-raw", "The data to send in the request body without special @ handling.")
+	curlCmd.Flags().Bool("dry-run", false, "Print the curl command without sending the request.")
 }

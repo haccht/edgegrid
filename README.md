@@ -61,11 +61,18 @@ If the `curl` executable is not available, `edgegrid curl` falls back to Go's `n
 - `--data-ascii`: The data to send in the request body. This behaves like `--data`.
 - `--data-raw`: The data to send in the request body without special `@` handling.
 - `--data-binary`: The binary data to send in the request body. File data read with `@` keeps newlines and carriage returns.
+- `--dry-run`: Print the curl command without sending the request.
 
 Here's an example of how to send a `POST` request with a JSON body from a file named `request.json`:
 
 ```bash
 edgegrid curl -X POST -d @request.json "/some/api/endpoint"
+```
+
+To preview the signed `curl` command without actually sending the request:
+
+```bash
+edgegrid curl --dry-run -X POST -d @request.json "/some/api/endpoint"
 ```
 
 ### `proxy`
